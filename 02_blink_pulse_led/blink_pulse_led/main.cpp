@@ -174,7 +174,7 @@ unsigned long buttontime;  // time when button first pressed
 uint8_t buttonState = 0;   // initial state set in next function
 uint8_t buttonActive = 0;  // set to 1 whe debouncing finished
 
-void initializeButton() {
+/* void initializeButton() {
   Serial.println("Setting up push button I/O pin as an input");
   Serial.print("Button I/O pin mode set to ");
   #if (BUTTON_ON_VALUE == LOW)
@@ -195,7 +195,7 @@ void initializeButton() {
     ESP.restart();
   }  
   buttonActive = !buttonState;
-}
+} */
 
 
 void setup() {
@@ -228,12 +228,12 @@ void setup() {
   pinMode(ledPin, OUTPUT); 
   digitalWrite(ledPin, 1-ledOn); // turn LED off
 
-  initializeButton();
+  //initializeButton();
   
   Serial.println("Completed setup");
-  Serial.println("Press the push button to switch between");
+  //Serial.println("Press the push button to switch between");
   Serial.println(" - turning the LED on and off in a heartbeat pattern");
-  Serial.println(" - ramping the intensity of the LED up and down making it pulse.");
+  //Serial.println(" - ramping the intensity of the LED up and down making it pulse.");
 }
 
 
