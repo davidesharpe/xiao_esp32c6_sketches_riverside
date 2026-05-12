@@ -48,6 +48,8 @@ void handleScan();
 void handleConnect();
 void handleReset();
 void handleNotFound();
+void handleScript();
+void handleStyle();
 bool tryConnectWithSavedCredentials();
 void clearSavedCredentials();
 //void webServerTask(void *pvParameters);
@@ -184,6 +186,12 @@ void setupWebServer() {
   // Root page - displays WiFi network list
   server.on("/", HTTP_GET, handleRoot);
   
+  // Style file
+  server.on("/style.css", HTTP_GET, handleStyle);
+  
+  // Script file
+  server.on("/script.js", HTTP_GET, handleScript);
+  
   // API endpoint to get WiFi networks
   server.on("/api/networks", HTTP_GET, handleScan);
   
@@ -271,6 +279,30 @@ void handleRoot() {
     return;
   }
   server.streamFile(file, "text/html");
+  file.close();
+}
+
+void handleScript() {
+  Serial.println("Client requested script.js");
+  
+  File file = LittleFS.open("/script.js", "r");
+  if (!file) {
+    server.send(500, "text/plain", "Failed to open /script.js");
+    return;
+  }
+  server.streamFile(file, "application/javascript");
+  file.close();
+}
+
+void handleStyle() {
+  Serial.println("Client requested style.css");
+  
+  File file = LittleFS.open("/style.css", "r");
+  if (!file) {
+    server.send(500, "text/plain", "Failed to open /style.css");
+    return;
+  }
+  server.streamFile(file, "text/css");
   file.close();
 }
 
