@@ -28,6 +28,7 @@ WebServer server(80);
 Preferences preferences;
 int numNetworks = 0;
 bool isInSTAMode = false;
+TaskHandle_t flashTask = NULL;
 
 // Preference keys
 const char* PREF_NAMESPACE = "wifi_config";
@@ -49,13 +50,20 @@ void handleReset();
 void handleNotFound();
 bool tryConnectWithSavedCredentials();
 void clearSavedCredentials();
-void webServerTask(void *pvParameters);
+//void webServerTask(void *pvParameters);
 
 void webServerTask(void *pvParameters) {
   for (;;) {
     server.handleClient();
     // Yield to other tasks for 2 ticks (approx 2ms on ESP32)
     vTaskDelay(2 / portTICK_PERIOD_MS); 
+  }
+}
+
+void flashLED(void *pvParameters) {
+  for (;;) {
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));  //toggle LED state
+    vTaskDelay(80 / portTICK_PERIOD_MS);  // On for 500ms
   }
 }
 
@@ -76,7 +84,11 @@ void setup() {
   Serial.println("========================================");
   Serial.printf("Board: XIAO ESP32C6\n");
   
-  preferences.begin(PREF_NAMESPACE, true);  // Read-only mode for initial check
+  // Initialize onboard LED (active-low)
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);  // Start off
+  
+   preferences.begin(PREF_NAMESPACE, true);  // Read-only mode for initial check
 
   // Mount LittleFS storage
   if (!LittleFS.begin()) {
@@ -265,6 +277,16 @@ void handleRoot() {
 void handleScan() {
   Serial.println("Client requested WiFi scan");
   
+  xTaskCreate(
+    flashLED,      // Function name
+    "FlashLED",    // Name for debugging
+    256,           // Stack size
+    NULL,          // Task parameters
+    1,             // Priority
+    &flashTask     // Task handle
+  );
+
+
   // Perform WiFi scan
   int n = WiFi.scanNetworks();
   numNetworks = n;
@@ -308,6 +330,8 @@ void handleScan() {
   server.send(200, "application/json", json);
   
   Serial.printf("  Found %d networks\n", n);
+
+  vTaskDelete(flashTask);
 }
 
 void handleConnect() {
