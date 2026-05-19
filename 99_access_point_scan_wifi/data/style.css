@@ -200,3 +200,30 @@
       margin-bottom: 15px;
       opacity: 0.5;
     }
+    .device-name-section {
+      background: #f0f4ff;
+      border: 2px solid #667eea;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    .device-name-display {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .edit-name-btn {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.3s ease;
+    }
+    .edit-name-btn:hover {
+      background: #5568d3;
+      transform: translateY(-2px);
+    }

@@ -14,7 +14,7 @@
 #include <Preferences.h>
 
 // ===== Configuration =====
-const char* AP_SSID = "ESP32-WiFi-Scanner";
+const char* AP_SSID = "IOT-Ratter-Setup";
 const char* AP_PASSWORD = "12345678";
 const int AP_CHANNEL = 1;
 const int AP_MAX_CONNECTIONS = 4;
@@ -34,6 +34,7 @@ TaskHandle_t flashTask = NULL;
 const char* PREF_NAMESPACE = "wifi_config";
 const char* PREF_SSID_KEY = "ssid";
 const char* PREF_PASSWORD_KEY = "password";
+const char* PREF_DEVICE_NAME_KEY = "device_name";
 
 // WiFi connection timeout (milliseconds)
 const int WIFI_CONNECT_TIMEOUT = 10000;
@@ -48,6 +49,8 @@ void handleScan();
 void handleConnect();
 void handleReset();
 void handleNotFound();
+void handleGetDeviceName();
+void handleSetDeviceName();
 void handleScript();
 void handleStyle();
 bool tryConnectWithSavedCredentials();
@@ -64,7 +67,10 @@ void webServerTask(void *pvParameters) {
 
 void flashLED(void *pvParameters) {
   for (;;) {
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));  //toggle LED state
+    int newState = !digitalRead(LED_BUILTIN);
+    //Serial.printf("Flash!\n");
+    //Serial.printf("Setting LED_BUILTIN to %s\n", newState == HIGH ? "HIGH" : "LOW");
+    digitalWrite(LED_BUILTIN, newState);  // toggle LED state
     vTaskDelay(80 / portTICK_PERIOD_MS);  // On for 500ms
   }
 }
@@ -191,6 +197,10 @@ void setupWebServer() {
   
   // Script file
   server.on("/script.js", HTTP_GET, handleScript);
+  
+  // Device name endpoints
+  server.on("/api/device-name", HTTP_GET, handleGetDeviceName);
+  server.on("/api/device-name", HTTP_POST, handleSetDeviceName);
   
   // API endpoint to get WiFi networks
   server.on("/api/networks", HTTP_GET, handleScan);
@@ -363,7 +373,11 @@ void handleScan() {
   
   Serial.printf("  Found %d networks\n", n);
 
-  vTaskDelete(flashTask);
+  if (flashTask != NULL) {
+    vTaskDelete(flashTask);
+    flashTask = NULL;
+  }
+  digitalWrite(LED_BUILTIN, HIGH);  // Ensure LED is off after flashing
 }
 
 void handleConnect() {
@@ -463,4 +477,59 @@ void handleNotFound() {
   Serial.printf("Not found: %s %s\n", server.method() == HTTP_GET ? "GET" : "POST", server.uri().c_str());
   
   server.send(404, "text/plain", "404: Not Found");
+}
+
+void handleGetDeviceName() {
+  Serial.println("Client requested device name");
+  
+  preferences.begin(PREF_NAMESPACE, true);  // Read-only mode
+  String deviceName = preferences.getString(PREF_DEVICE_NAME_KEY, "");
+  preferences.end();
+  
+  // If no device name is set, generate one from MAC address
+  if (deviceName.length() == 0) {
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    char buffer[20];
+    snprintf(buffer, sizeof(buffer), "IOT-Ratter-%02X%02X", mac[4], mac[5]);
+    deviceName = String(buffer);
+  }
+  
+  String response = "{\"name\":\"" + deviceName + "\"}";
+  server.send(200, "application/json", response);
+}
+
+void handleSetDeviceName() {
+  Serial.println("Client requested to set device name");
+  
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"error\":\"No data provided\"}");
+    return;
+  }
+  
+  String body = server.arg("plain");
+  Serial.printf("  Request body: %s\n", body.c_str());
+  
+  // Simple JSON parsing for device name
+  int nameStartIdx = body.indexOf("\"name\":\"") + 8;
+  int nameEndIdx = body.indexOf("\"", nameStartIdx);
+  
+  if (nameStartIdx > 7 && nameEndIdx > nameStartIdx) {
+    String deviceName = body.substring(nameStartIdx, nameEndIdx);
+    
+    // Limit device name to 32 characters
+    if (deviceName.length() > 32) {
+      deviceName = deviceName.substring(0, 32);
+    }
+    
+    // Save to preferences
+    preferences.begin(PREF_NAMESPACE, false);  // Read-write mode
+    preferences.putString(PREF_DEVICE_NAME_KEY, deviceName);
+    preferences.end();
+    
+    Serial.printf("  Device name set to: %s\n", deviceName.c_str());
+    server.send(200, "application/json", "{\"status\":\"success\",\"name\":\"" + deviceName + "\"}");
+  } else {
+    server.send(400, "application/json", "{\"error\":\"Invalid device name\"}");
+  }
 }

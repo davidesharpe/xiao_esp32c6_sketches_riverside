@@ -14,6 +14,21 @@
     </div>
     <div class="content">
       <div id="statusMessage" class="status-message"></div>
+      
+      <div class="device-name-section">
+        <div class="device-name-display">
+          <span id="deviceNameText" style="font-weight: 600; font-size: 16px;">Loading...</span>
+          <button class="edit-name-btn" onclick="toggleEditDeviceName()">✏️</button>
+        </div>
+        <div id="deviceNameEditContainer" style="display: none; margin-bottom: 15px;">
+          <input type="text" id="deviceNameInput" placeholder="Enter device name" maxlength="32" style="width: 100%; padding: 10px; border: 2px solid #667eea; border-radius: 5px; font-size: 14px; box-sizing: border-box; margin-bottom: 8px;">
+          <div style="display: flex; gap: 8px;">
+            <button onclick="saveDeviceName()" style="flex: 1; padding: 8px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">Save</button>
+            <button onclick="toggleEditDeviceName()" style="flex: 1; padding: 8px; background: #f0f0f0; color: #333; border: 2px solid #e0e0e0; border-radius: 5px; cursor: pointer;">Cancel</button>
+          </div>
+        </div>
+      </div>
+      
       <div class="button-group">
         <button class="scan-btn" id="scanBtn" onclick="scanNetworks()">🔍 Scan Networks</button>
         <button class="refresh-btn" onclick="location.reload()">⟳</button>

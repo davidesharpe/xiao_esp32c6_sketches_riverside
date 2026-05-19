@@ -1,5 +1,58 @@
 let selectedNetwork = null;
 let allNetworks = [];
+
+async function getDeviceName() {
+  try {
+    const response = await fetch('/api/device-name');
+    if (!response.ok) throw new Error('Failed to fetch device name');
+    const data = await response.json();
+    document.getElementById('deviceNameText').textContent = data.name;
+    document.getElementById('deviceNameInput').value = data.name;
+  } catch (error) {
+    console.error('Error getting device name:', error);
+    document.getElementById('deviceNameText').textContent = 'Unknown Device';
+  }
+}
+
+function toggleEditDeviceName() {
+  const editContainer = document.getElementById('deviceNameEditContainer');
+  if (editContainer.style.display === 'none') {
+    editContainer.style.display = 'block';
+    document.getElementById('deviceNameInput').focus();
+  } else {
+    editContainer.style.display = 'none';
+  }
+}
+
+async function saveDeviceName() {
+  const newName = document.getElementById('deviceNameInput').value.trim();
+  if (!newName) {
+    alert('Device name cannot be empty');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/device-name', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name: newName })
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      document.getElementById('deviceNameText').textContent = data.name;
+      toggleEditDeviceName();
+    } else {
+      throw new Error('Failed to save device name');
+    }
+  } catch (error) {
+    console.error('Error saving device name:', error);
+    alert('Failed to save device name: ' + error.message);
+  }
+}
+
 async function scanNetworks() {
   const scanBtn = document.getElementById('scanBtn');
   const loading = document.getElementById('loading');
@@ -164,5 +217,6 @@ async function resetPreferences() {
   }
 }
 window.onload = () => {
+  getDeviceName();
   scanNetworks();
 };
