@@ -334,20 +334,31 @@ void handleScan() {
   numNetworks = n;
   
   
-  // Build JSON response
-  String json = "[";
+  // Build JSON response with a dynamically sized buffer based on the number of networks
+  size_t maxPerNetwork = 256;
+  size_t bufferSize = (size_t)n * maxPerNetwork + 32;
+  char* json = (char*)malloc(bufferSize);
+  if (!json) {
+    WiFi.scanDelete();
+    server.send(500, "application/json", "{\"error\":\"Allocation failed\"}");
+    return;
+  }
+  size_t jsonLen = 0;
+  jsonLen += snprintf(json + jsonLen, bufferSize - jsonLen, "[");
   
   for (int i = 0; i < n; ++i) {
-    if (i > 0) json += ",";
+    if (jsonLen >= bufferSize - 1) break;
+    if (i > 0) {
+      jsonLen += snprintf(json + jsonLen, bufferSize - jsonLen, ",");
+    }
     
-    json += "{";
-    json += "\"ssid\":\"" + WiFi.SSID(i) + "\",";
-    json += "\"rssi\":" + String(WiFi.RSSI(i)) + ",";
-    json += "\"channel\":" + String(WiFi.channel(i)) + ",";
-    json += "\"bssid\":\"" + WiFi.BSSIDstr(i) + "\",";
+    const char* ssid = WiFi.SSID(i).c_str();
+    const char* bssid = WiFi.BSSIDstr(i).c_str();
+    int rssi = WiFi.RSSI(i);
+    int channel = WiFi.channel(i);
     
     // Get encryption type
-    String encryption;
+    const char* encryption;
     switch (WiFi.encryptionType(i)) {
       case WIFI_AUTH_OPEN:            encryption = "Open"; break;
       case WIFI_AUTH_WEP:             encryption = "WEP"; break;
@@ -358,18 +369,25 @@ void handleScan() {
       case WIFI_AUTH_WPA3_PSK:        encryption = "WPA3"; break;
       case WIFI_AUTH_WPA2_WPA3_PSK:   encryption = "WPA2+WPA3"; break;
       case WIFI_AUTH_WAPI_PSK:        encryption = "WAPI"; break;
-      default:                        encryption = "Unknown";
+      default:                        encryption = "Unknown"; break;
     }
-    json += "\"encryption\":\"" + encryption + "\"";
-    json += "}";
+    
+    jsonLen += snprintf(json + jsonLen, bufferSize - jsonLen,
+                        "{\"ssid\":\"%s\",\"rssi\":%d,\"channel\":%d,\"bssid\":\"%s\",\"encryption\":\"%s\"}",
+                        ssid, rssi, channel, bssid, encryption);
   }
   
-  json += "]";
+  if (jsonLen < bufferSize - 1) {
+    jsonLen += snprintf(json + jsonLen, bufferSize - jsonLen, "]");
+  } else {
+    json[bufferSize - 1] = '\0';
+  }
   
   // Delete scan result to free memory
   WiFi.scanDelete();
   
   server.send(200, "application/json", json);
+  free(json);
   
   Serial.printf("  Found %d networks\n", n);
 
