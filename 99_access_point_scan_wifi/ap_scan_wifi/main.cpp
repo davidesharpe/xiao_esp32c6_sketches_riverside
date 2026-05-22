@@ -501,19 +501,19 @@ void handleGetDeviceName() {
   Serial.println("Client requested device name");
   
   preferences.begin(PREF_NAMESPACE, true);  // Read-only mode
-  String deviceName = preferences.getString(PREF_DEVICE_NAME_KEY, "");
+  char deviceName[33] = "";
+  size_t nameLen = preferences.getBytes(PREF_DEVICE_NAME_KEY, deviceName, sizeof(deviceName));
   preferences.end();
   
   // If no device name is set, generate one from MAC address
-  if (deviceName.length() == 0) {
+  if (nameLen == 0) {
     uint8_t mac[6];
     WiFi.macAddress(mac);
-    char buffer[20];
-    snprintf(buffer, sizeof(buffer), "IOT-Ratter-%02X%02X", mac[4], mac[5]);
-    deviceName = String(buffer);
+    snprintf(deviceName, sizeof(deviceName), "IOT-Ratter-%02X%02X", mac[4], mac[5]);
   }
   
-  String response = "{\"name\":\"" + deviceName + "\"}";
+  char response[64];
+  snprintf(response, sizeof(response), "{\"name\":\"%s\"}", deviceName);
   server.send(200, "application/json", response);
 }
 
