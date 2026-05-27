@@ -86,6 +86,23 @@
       background: #c82333;
       border-color: #c82333;
     }
+    .sleep-btn {
+      width: 100%;
+      padding: 12px;
+      background: #ff9800;
+      color: white;
+      border: 2px solid #fb8c00;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+    .sleep-btn:hover {
+      background: #fb8c00;
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(255, 152, 0, 0.35);
+    }
     .loading {
       display: none;
       text-align: center;

@@ -216,6 +216,33 @@ async function resetPreferences() {
     statusMsg.className = 'status-message error';
   }
 }
+
+async function enterDeepSleep() {
+  if (!confirm('Put the device into deep sleep for 30 seconds?')) {
+    return;
+  }
+
+  const statusMsg = document.getElementById('statusMessage');
+  statusMsg.textContent = '😴 Entering deep sleep...';
+  statusMsg.className = 'status-message info';
+
+  try {
+    const response = await fetch('/api/sleep', {
+      method: 'POST'
+    });
+    if (response.ok) {
+      statusMsg.textContent = '✅ Device is going to sleep now. It will wake in 30 seconds.';
+      statusMsg.className = 'status-message success';
+    } else {
+      throw new Error('Sleep request failed');
+    }
+  } catch (error) {
+    console.error('Sleep error:', error);
+    statusMsg.textContent = '❌ Sleep error: ' + error.message;
+    statusMsg.className = 'status-message error';
+  }
+}
+
 window.onload = () => {
   getDeviceName();
   scanNetworks();

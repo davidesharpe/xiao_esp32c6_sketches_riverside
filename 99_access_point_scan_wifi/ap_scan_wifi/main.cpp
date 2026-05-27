@@ -13,6 +13,7 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
+#include <esp_sleep.h>
 
 // ===== Configuration =====
 const char* AP_SSID = "IOT-Ratter-Setup";
@@ -52,11 +53,33 @@ void handleReset();
 void handleNotFound();
 void handleGetDeviceName();
 void handleSetDeviceName();
+void handleSleep();
 void handleScript();
 void handleStyle();
 bool tryConnectWithSavedCredentials();
 void clearSavedCredentials();
+String wakeupReasonToString(esp_sleep_wakeup_cause_t cause);
+void logWakeupReason();
 //void webServerTask(void *pvParameters);
+
+String wakeupReasonToString(esp_sleep_wakeup_cause_t cause) {
+  switch (cause) {
+    case ESP_SLEEP_WAKEUP_UNDEFINED: return "Power-on or reset (no deep sleep wakeup)";
+    case ESP_SLEEP_WAKEUP_ALL: return "Wakeup from all sources";
+    case ESP_SLEEP_WAKEUP_EXT0: return "External signal using RTC_IO (EXT0)";
+    case ESP_SLEEP_WAKEUP_EXT1: return "External signal using RTC_CNTL (EXT1)";
+    case ESP_SLEEP_WAKEUP_TIMER: return "Timer wakeup";
+    case ESP_SLEEP_WAKEUP_TOUCHPAD: return "Touchpad wakeup";
+    case ESP_SLEEP_WAKEUP_ULP: return "ULP wakeup";
+    default: return "Unknown wakeup reason";
+  }
+}
+
+void logWakeupReason() {
+  esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  String reason = wakeupReasonToString(cause);
+  Serial.printf("Wakeup reason: %s\n", reason.c_str());
+}
 
 void webServerTask(void *pvParameters) {
   for (;;) {
@@ -91,6 +114,7 @@ void setup() {
   Serial.println("\n\n========================================");
   Serial.println("ESP32 WiFi Access Point + Web Server");
   Serial.println("========================================");
+  logWakeupReason();
   Serial.printf("Board: XIAO ESP32C6\n");
   
   // Initialize onboard LED (active-low)
@@ -211,6 +235,9 @@ void setupWebServer() {
   
   // API endpoint to reset WiFi preferences
   server.on("/api/reset", HTTP_POST, handleReset);
+
+  // API endpoint to enter deep sleep
+  server.on("/api/sleep", HTTP_POST, handleSleep);
   
   // Handle 404 errors
   server.onNotFound(handleNotFound);
@@ -580,4 +607,20 @@ void handleSetDeviceName() {
     serializeJson(err, response, sizeof(response));
     server.send(400, "application/json", response);
   }
+}
+
+void handleSleep() {
+  Serial.println("Client requested deep sleep");
+
+  StaticJsonDocument<64> doc;
+  doc["status"] = "sleeping";
+  doc["duration_seconds"] = 30;
+  char response[64];
+  serializeJson(doc, response, sizeof(response));
+  server.send(200, "application/json", response);
+
+  Serial.println("Entering deep sleep for 30 seconds...");
+  delay(100);
+  esp_sleep_enable_timer_wakeup(30ULL * 1000000ULL);
+  esp_deep_sleep_start();
 }
