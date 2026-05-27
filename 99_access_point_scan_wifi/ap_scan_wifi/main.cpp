@@ -12,6 +12,7 @@
 #include <WebServer.h>
 #include <LittleFS.h>
 #include <Preferences.h>
+#include <ArduinoJson.h>
 
 // ===== Configuration =====
 const char* AP_SSID = "IOT-Ratter-Setup";
@@ -96,7 +97,7 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);  // Start off
   
-   preferences.begin(PREF_NAMESPACE, true);  // Read-only mode for initial check
+  preferences.begin(PREF_NAMESPACE, true);  // Read-only mode for initial check
 
   // Mount LittleFS storage
   if (!LittleFS.begin()) {
@@ -499,21 +500,35 @@ void handleNotFound() {
 
 void handleGetDeviceName() {
   Serial.println("Client requested device name");
-  
-  preferences.begin(PREF_NAMESPACE, true);  // Read-only mode
-  char deviceName[33] = "";
-  size_t nameLen = preferences.getBytes(PREF_DEVICE_NAME_KEY, deviceName, sizeof(deviceName));
+
+  // Read the device name into a C buffer (no C++ String)
+  char deviceName[64] = {0};
+  preferences.begin(PREF_NAMESPACE, true); // read-only
+  size_t nameLen = preferences.getString(PREF_DEVICE_NAME_KEY, deviceName, sizeof(deviceName));
   preferences.end();
-  
-  // If no device name is set, generate one from MAC address
-  if (nameLen == 0) {
+
+  // If no device name is set, generate one from MAC address and save it
+  if (nameLen == 0 || deviceName[0] == '\0') {
     uint8_t mac[6];
     WiFi.macAddress(mac);
-    snprintf(deviceName, sizeof(deviceName), "IOT-Ratter-%02X%02X", mac[4], mac[5]);
+    char genName[32];
+    snprintf(genName, sizeof(genName), "IOT-Ratter-%02X%02X", mac[4], mac[5]);
+
+    // Save generated name
+    preferences.begin(PREF_NAMESPACE, false); // read-write
+    preferences.putString(PREF_DEVICE_NAME_KEY, genName);
+    preferences.end();
+
+    // Copy into deviceName buffer
+    strncpy(deviceName, genName, sizeof(deviceName) - 1);
+    deviceName[sizeof(deviceName) - 1] = '\0';
   }
-  
-  char response[64];
-  snprintf(response, sizeof(response), "{\"name\":\"%s\"}", deviceName);
+
+  // Use ArduinoJson to build the response (avoids manual escaping)
+  StaticJsonDocument<192> doc;
+  doc["name"] = deviceName;
+  char response[256];
+  serializeJson(doc, response, sizeof(response));
   server.send(200, "application/json", response);
 }
 
@@ -525,29 +540,44 @@ void handleSetDeviceName() {
     return;
   }
   
-  String body = server.arg("plain");
-  Serial.printf("  Request body: %s\n", body.c_str());
+  char body[256];
+  strncpy(body,server.arg("plain").c_str(), sizeof(body) - 1);
+  Serial.printf("  Request body: %s\n", body);
   
   // Simple JSON parsing for device name
-  int nameStartIdx = body.indexOf("\"name\":\"") + 8;
-  int nameEndIdx = body.indexOf("\"", nameStartIdx);
+  char* nameStart = strstr(body, "\"name\":\"");
+  char* nameEnd = nullptr;
+  if (nameStart) {
+    nameStart += strlen("\"name\":\"");
+    nameEnd = strchr(nameStart, '"');
+  }
   
-  if (nameStartIdx > 7 && nameEndIdx > nameStartIdx) {
-    String deviceName = body.substring(nameStartIdx, nameEndIdx);
-    
-    // Limit device name to 32 characters
-    if (deviceName.length() > 32) {
-      deviceName = deviceName.substring(0, 32);
+  if (nameStart && nameEnd && nameEnd > nameStart) {
+    char deviceName[33];
+    size_t nameLen = nameEnd - nameStart;
+    if (nameLen > sizeof(deviceName) - 1) {
+      nameLen = sizeof(deviceName) - 1;
     }
+    memcpy(deviceName, nameStart, nameLen);
+    deviceName[nameLen] = '\0';
     
     // Save to preferences
     preferences.begin(PREF_NAMESPACE, false);  // Read-write mode
     preferences.putString(PREF_DEVICE_NAME_KEY, deviceName);
     preferences.end();
     
-    Serial.printf("  Device name set to: %s\n", deviceName.c_str());
-    server.send(200, "application/json", "{\"status\":\"success\",\"name\":\"" + deviceName + "\"}");
+    Serial.printf("  Device name set to: %s\n", deviceName);
+    StaticJsonDocument<128> doc;
+    doc["status"] = "success";
+    doc["name"] = deviceName;
+    char response[128];
+    serializeJson(doc, response, sizeof(response));
+    server.send(200, "application/json", response);
   } else {
-    server.send(400, "application/json", "{\"error\":\"Invalid device name\"}");
+    StaticJsonDocument<64> err;
+    err["error"] = "Invalid device name";
+    char response[64];
+    serializeJson(err, response, sizeof(response));
+    server.send(400, "application/json", response);
   }
 }
