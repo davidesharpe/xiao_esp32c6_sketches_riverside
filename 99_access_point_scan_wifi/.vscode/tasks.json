@@ -1,0 +1,19 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Run TIO Serial",
+            "type": "shell",
+            "command": "tio -b 460800 /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_58:E6:C5:14:71:88-if00",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        }
+    ]
+}   
