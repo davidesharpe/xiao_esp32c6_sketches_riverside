@@ -217,6 +217,34 @@ async function resetPreferences() {
   }
 }
 
+async function publishToMqtt() {
+  const statusMsg = document.getElementById('statusMessage');
+  statusMsg.textContent = '📡 Publishing device ID and time to MQTT...';
+  statusMsg.className = 'status-message info';
+
+  try {
+    const response = await fetch('/api/publish', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({})
+    });
+    if (response.ok) {
+      statusMsg.textContent = '✅ Published device ID and time to MQTT successfully.';
+      statusMsg.className = 'status-message success';
+    } else {
+      const errorData = await response.json().catch(() => null);
+      const errorMessage = errorData && errorData.error ? errorData.error : 'Publish failed';
+      throw new Error(errorMessage);
+    }
+  } catch (error) {
+    console.error('MQTT publish error:', error);
+    statusMsg.textContent = '❌ MQTT publish error: ' + error.message;
+    statusMsg.className = 'status-message error';
+  }
+}
+
 async function enterDeepSleep() {
   if (!confirm('Put the device into deep sleep for 30 seconds?')) {
     return;

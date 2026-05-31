@@ -13,6 +13,8 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
+#include <PubSubClient.h>
+#include <time.h>
 #include <esp_sleep.h>
 
 // ===== Configuration =====
@@ -28,9 +30,18 @@ const int AP_MAX_CONNECTIONS = 4;
 // ===== Global Variables =====
 WebServer server(80);
 Preferences preferences;
+WiFiClient mqttNetworkClient;
+PubSubClient mqttClient(mqttNetworkClient);
 int numNetworks = 0;
 bool isInSTAMode = false;
 TaskHandle_t flashTask = NULL;
+
+// MQTT configuration
+const char* MQTT_HOST = "mqtt.example.com";
+const int MQTT_PORT = 1883;
+const char* MQTT_TOPIC = "devices/iot-ratter/status";
+const char* NTP_SERVER1 = "pool.ntp.org";
+const char* NTP_SERVER2 = "time.nist.gov";
 
 // Preference keys
 const char* PREF_NAMESPACE = "wifi_config";
@@ -56,13 +67,18 @@ void handleSetDeviceName();
 void handleSleep();
 void handleScript();
 void handleStyle();
+void handlePublish();
 bool tryConnectWithSavedCredentials();
 void clearSavedCredentials();
-String wakeupReasonToString(esp_sleep_wakeup_cause_t cause);
+const char* getDeviceId();
+const char* getCurrentTimeString();
+bool ensureMqttConnected();
+void setupMQTT();
+const char* wakeupReasonToString(esp_sleep_wakeup_cause_t cause);
 void logWakeupReason();
 //void webServerTask(void *pvParameters);
 
-String wakeupReasonToString(esp_sleep_wakeup_cause_t cause) {
+const char* wakeupReasonToString(esp_sleep_wakeup_cause_t cause) {
   switch (cause) {
     case ESP_SLEEP_WAKEUP_UNDEFINED: return "Power-on or reset (no deep sleep wakeup)";
     case ESP_SLEEP_WAKEUP_ALL: return "Wakeup from all sources";
@@ -77,8 +93,98 @@ String wakeupReasonToString(esp_sleep_wakeup_cause_t cause) {
 
 void logWakeupReason() {
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-  String reason = wakeupReasonToString(cause);
-  Serial.printf("Wakeup reason: %s\n", reason.c_str());
+  const char *reason = wakeupReasonToString(cause);
+  Serial.printf("Wakeup reason: %s\n", reason);
+}
+
+const char* getDeviceId() {
+  static char deviceId[64] = {0};
+  static bool initialized = false;
+  
+  if (!initialized) {
+    char deviceName[64] = {0};
+    preferences.begin(PREF_NAMESPACE, true);
+    size_t nameLen = preferences.getString(PREF_DEVICE_NAME_KEY, deviceName, sizeof(deviceName));
+    preferences.end();
+    
+    if (nameLen > 0 && deviceName[0] != '\0') {
+      strncpy(deviceId, deviceName, sizeof(deviceId) - 1);
+    } else {
+      uint8_t mac[6];
+      WiFi.macAddress(mac);
+      snprintf(deviceId, sizeof(deviceId), "IOT-Ratter-%02X%02X%02X%02X", mac[2], mac[3], mac[4], mac[5]);
+    }
+    initialized = true;
+  }
+  
+  return deviceId;
+}
+
+const char* getCurrentTimeString() {
+  static char timeBuffer[32] = {0};
+  time_t now = time(nullptr);
+  struct tm timeinfo;
+  
+  if (now < 1000000000 || !gmtime_r(&now, &timeinfo)) {
+    snprintf(timeBuffer, sizeof(timeBuffer), "uptime:%lu", millis() / 1000);
+  } else {
+    strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+  }
+  
+  return timeBuffer;
+}
+
+bool connectToMqtt() {
+  unsigned long start = millis();
+  while (!mqttClient.connected() && millis() - start < 10000) {
+    Serial.printf("Connecting to MQTT %s:%d...\n", MQTT_HOST, MQTT_PORT);
+    if (mqttClient.connect(getDeviceId())) {
+      Serial.println("✓ Connected to MQTT broker");
+      return true;
+    }
+    delay(1000);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.println("✗ MQTT connect failed");
+  return false;
+}
+
+bool ensureMqttConnected() {
+  if (mqttClient.connected()) {
+    return true;
+  }
+  return connectToMqtt();
+}
+
+void setupMQTT() {
+  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  ensureMqttConnected();
+}
+
+void handlePublish() {
+  Serial.println("Client requested MQTT publish");
+
+  if (!ensureMqttConnected()) {
+    server.send(500, "application/json", "{\"error\":\"MQTT connection failed\"}");
+    return;
+  }
+
+  JsonDocument doc;
+  doc["device_id"] = getDeviceId();
+  doc["time"] = getCurrentTimeString();
+  char payload[192];
+  serializeJson(doc, payload, sizeof(payload));
+
+  bool published = mqttClient.publish(MQTT_TOPIC, payload);
+  if (published) {
+    mqttClient.loop();
+    Serial.printf("Published to MQTT topic %s: %s\n", MQTT_TOPIC, payload);
+    server.send(200, "application/json", "{\"status\":\"published\"}");
+  } else {
+    Serial.println("✗ MQTT publish failed");
+    server.send(500, "application/json", "{\"error\":\"MQTT publish failed\"}");
+  }
 }
 
 void webServerTask(void *pvParameters) {
@@ -139,7 +245,9 @@ void setup() {
     isInSTAMode = true;
     preferences.end();
     
-    // Setup Web Server in STA mode (optional, for additional functionality)
+    // Setup networking services now that we're in STA mode
+    configTime(0, 0, NTP_SERVER1, NTP_SERVER2);
+    setupMQTT();
     setupWebServer();
     server.begin();
 
@@ -235,6 +343,9 @@ void setupWebServer() {
   
   // API endpoint to reset WiFi preferences
   server.on("/api/reset", HTTP_POST, handleReset);
+
+  // API endpoint to publish device ID and time over MQTT
+  server.on("/api/publish", HTTP_POST, handlePublish);
 
   // API endpoint to enter deep sleep
   server.on("/api/sleep", HTTP_POST, handleSleep);
@@ -347,6 +458,9 @@ void handleStyle() {
 void handleScan() {
   Serial.println("Client requested WiFi scan");
   
+  // Save connection state before scanning
+  bool wasConnected = isInSTAMode && WiFi.status() == WL_CONNECTED;
+  
   xTaskCreate(
     flashLED,      // Function name
     "FlashLED",    // Name for debugging
@@ -356,11 +470,9 @@ void handleScan() {
     &flashTask     // Task handle
   );
 
-
   // Perform WiFi scan
   int n = WiFi.scanNetworks();
   numNetworks = n;
-  
   
   // Build JSON response with a dynamically sized buffer based on the number of networks
   size_t maxPerNetwork = 256;
@@ -413,11 +525,48 @@ void handleScan() {
   
   // Delete scan result to free memory
   WiFi.scanDelete();
+
+  Serial.println(json);
   
   server.send(200, "application/json", json);
   free(json);
   
   Serial.printf("  Found %d networks\n", n);
+
+  // Reconnect to saved WiFi if we were previously connected
+  if (wasConnected) {
+    Serial.println("  Reconnecting to saved WiFi...");
+    char savedSSID[33] = {0};
+    char savedPassword[65] = {0};
+    
+    preferences.begin(PREF_NAMESPACE, true);
+    preferences.getString(PREF_SSID_KEY, savedSSID, sizeof(savedSSID));
+    preferences.getString(PREF_PASSWORD_KEY, savedPassword, sizeof(savedPassword));
+    preferences.end();
+    
+    if (savedSSID[0] != '\0') {
+      WiFi.mode(WIFI_STA);
+      if (savedPassword[0] != '\0') {
+        WiFi.begin(savedSSID, savedPassword);
+      } else {
+        WiFi.begin(savedSSID);
+      }
+      
+      // Wait for reconnection
+      unsigned long startTime = millis();
+      while (WiFi.status() != WL_CONNECTED && (millis() - startTime) < 5000) {
+        delay(200);
+        Serial.print(".");
+      }
+      Serial.println();
+      
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("  ✓ Reconnected to WiFi");
+      } else {
+        Serial.println("  ✗ Failed to reconnect to WiFi");
+      }
+    }
+  }
 
   if (flashTask != NULL) {
     vTaskDelete(flashTask);
@@ -552,7 +701,7 @@ void handleGetDeviceName() {
   }
 
   // Use ArduinoJson to build the response (avoids manual escaping)
-  StaticJsonDocument<192> doc;
+  JsonDocument doc;
   doc["name"] = deviceName;
   char response[256];
   serializeJson(doc, response, sizeof(response));
@@ -594,14 +743,14 @@ void handleSetDeviceName() {
     preferences.end();
     
     Serial.printf("  Device name set to: %s\n", deviceName);
-    StaticJsonDocument<128> doc;
+    JsonDocument doc;
     doc["status"] = "success";
     doc["name"] = deviceName;
     char response[128];
     serializeJson(doc, response, sizeof(response));
     server.send(200, "application/json", response);
   } else {
-    StaticJsonDocument<64> err;
+    JsonDocument err;
     err["error"] = "Invalid device name";
     char response[64];
     serializeJson(err, response, sizeof(response));
@@ -612,7 +761,7 @@ void handleSetDeviceName() {
 void handleSleep() {
   Serial.println("Client requested deep sleep");
 
-  StaticJsonDocument<64> doc;
+  JsonDocument doc;
   doc["status"] = "sleeping";
   doc["duration_seconds"] = 30;
   char response[64];

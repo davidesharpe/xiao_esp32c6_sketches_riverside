@@ -34,6 +34,9 @@
         <button class="refresh-btn" onclick="location.reload()">⟳</button>
         <button class="reset-btn" onclick="resetPreferences()">🔄 Reset WiFi</button>
       </div>
+      <div class="button-group">
+        <button class="scan-btn" onclick="publishToMqtt()">📡 Publish device/time to MQTT</button>
+      </div>
       <div class="loading" id="loading">
         <div class="spinner"></div>
         <p>Scanning for networks...</p>
