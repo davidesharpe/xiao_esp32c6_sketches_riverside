@@ -458,9 +458,6 @@ void handleStyle() {
 void handleScan() {
   Serial.println("Client requested WiFi scan");
   
-  // Save connection state before scanning
-  bool wasConnected = isInSTAMode && WiFi.status() == WL_CONNECTED;
-  
   xTaskCreate(
     flashLED,      // Function name
     "FlashLED",    // Name for debugging
@@ -492,8 +489,12 @@ void handleScan() {
       jsonLen += snprintf(json + jsonLen, bufferSize - jsonLen, ",");
     }
     
-    const char* ssid = WiFi.SSID(i).c_str();
-    const char* bssid = WiFi.BSSIDstr(i).c_str();
+    char ssidBuf[33] = {0};
+    strncpy(ssidBuf, WiFi.SSID(i).c_str(), sizeof(ssidBuf) - 1);
+    //const char* ssid = ssidBuf;
+    char bssidBuf[18] = {0};
+    strncpy(bssidBuf, WiFi.BSSIDstr(i).c_str(), sizeof(bssidBuf) - 1);
+    //const char* bssid = bssidBuf;
     int rssi = WiFi.RSSI(i);
     int channel = WiFi.channel(i);
     
@@ -514,7 +515,7 @@ void handleScan() {
     
     jsonLen += snprintf(json + jsonLen, bufferSize - jsonLen,
                         "{\"ssid\":\"%s\",\"rssi\":%d,\"channel\":%d,\"bssid\":\"%s\",\"encryption\":\"%s\"}",
-                        ssid, rssi, channel, bssid, encryption);
+                        ssidBuf, rssi, channel, bssidBuf, encryption);
   }
   
   if (jsonLen < bufferSize - 1) {
@@ -526,47 +527,13 @@ void handleScan() {
   // Delete scan result to free memory
   WiFi.scanDelete();
 
-  Serial.println(json);
+  //Serial.println(json);
   
   server.send(200, "application/json", json);
   free(json);
   
   Serial.printf("  Found %d networks\n", n);
 
-  // Reconnect to saved WiFi if we were previously connected
-  if (wasConnected) {
-    Serial.println("  Reconnecting to saved WiFi...");
-    char savedSSID[33] = {0};
-    char savedPassword[65] = {0};
-    
-    preferences.begin(PREF_NAMESPACE, true);
-    preferences.getString(PREF_SSID_KEY, savedSSID, sizeof(savedSSID));
-    preferences.getString(PREF_PASSWORD_KEY, savedPassword, sizeof(savedPassword));
-    preferences.end();
-    
-    if (savedSSID[0] != '\0') {
-      WiFi.mode(WIFI_STA);
-      if (savedPassword[0] != '\0') {
-        WiFi.begin(savedSSID, savedPassword);
-      } else {
-        WiFi.begin(savedSSID);
-      }
-      
-      // Wait for reconnection
-      unsigned long startTime = millis();
-      while (WiFi.status() != WL_CONNECTED && (millis() - startTime) < 5000) {
-        delay(200);
-        Serial.print(".");
-      }
-      Serial.println();
-      
-      if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("  ✓ Reconnected to WiFi");
-      } else {
-        Serial.println("  ✗ Failed to reconnect to WiFi");
-      }
-    }
-  }
 
   if (flashTask != NULL) {
     vTaskDelete(flashTask);
